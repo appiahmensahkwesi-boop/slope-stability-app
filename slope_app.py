@@ -1,5 +1,5 @@
 """
-SlopeLab - Slope Stability Analysis Studio
+SlopeLab - Slope Stability Analysis Studio (dark studio interface)
 ------------------------------------------
 Limit-equilibrium slope stability (Fellenius and Bishop's Simplified) with
   * layered soils (horizontal layers, own c', phi', unit weights)
@@ -279,7 +279,7 @@ def status_of(F):
 
 
 # =====================================================================
-# 4. FIGURES (plotly)
+# 4. FIGURES (plotly) - every figure works in light or dark mode
 # =====================================================================
 def arc_xy(xe, xi, xc, yc, R, n=90):
     x = np.linspace(xe, xi, n)
@@ -291,10 +291,34 @@ def _view_range(P):
     return -1.7 * P["H"], P["xcrest"] + 3.2 * P["H"]
 
 
-def fig_section(P, res, show_slices=True, show_trials=True):
-    import plotly.graph_objects as go
+def _theme(dark):
+    if dark:
+        return dict(text="#cbd5e1", ground="#e2e8f0", grid="rgba(148,163,184,0.18)",
+                    slice="rgba(203,213,225,0.45)", trial="rgba(148,163,184,0.40)")
+    return dict(text="#1f2328", ground="#222222", grid="rgba(128,128,128,0.20)",
+                slice="rgba(80,80,80,0.55)", trial="rgba(120,120,120,0.45)")
 
-    H, D = P["H"], P["Dmax"]
+
+def _style(fig, T, dark, scene=False):
+    """Transparent background and readable text for the dark interface."""
+    if not dark:
+        return fig
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      font=dict(color=T["text"]))
+    if scene:
+        ax = dict(gridcolor=T["grid"], zerolinecolor=T["grid"],
+                  showbackground=False)
+        fig.update_layout(scene=dict(bgcolor="rgba(0,0,0,0)", xaxis=dict(**ax),
+                                     yaxis=dict(**ax), zaxis=dict(**ax)))
+    else:
+        fig.update_xaxes(gridcolor=T["grid"], zerolinecolor=T["grid"])
+        fig.update_yaxes(gridcolor=T["grid"], zerolinecolor=T["grid"])
+    return fig
+
+
+def _base_section(go, P, T):
+    """Layers, water table and ground line. Returns (fig, x, ground_y)."""
+    D = P["Dmax"]
     xmin, xmax = _view_range(P)
     x = np.linspace(xmin, xmax, 500)
     gy = ground_y(x, P)
@@ -317,16 +341,44 @@ def fig_section(P, res, show_slices=True, show_trials=True):
             x=np.concatenate([x, x[::-1]]),
             y=np.concatenate([wy, np.full_like(x, -D)[::-1]]),
             fill="toself", mode="lines", line=dict(width=0),
-            fillcolor="rgba(30,144,255,0.20)", name="Saturated zone",
+            fillcolor="rgba(30,144,255,0.22)", name="Saturated zone",
             hoverinfo="skip"))
         fig.add_trace(go.Scatter(
             x=x, y=wy, mode="lines",
-            line=dict(color="#1e90ff", width=3, dash="dash"),
+            line=dict(color="#38a3ff", width=3, dash="dash"),
             name="Water table"))
 
     fig.add_trace(go.Scatter(x=x, y=gy, mode="lines",
-                             line=dict(color="#222222", width=3),
+                             line=dict(color=T["ground"], width=3),
                              name="Ground surface"))
+    return fig, x, gy
+
+
+def fig_preview(P, dark=False, height=380):
+    """Slope geometry before any analysis has been run."""
+    import plotly.graph_objects as go
+
+    T = _theme(dark)
+    H, D = P["H"], P["Dmax"]
+    xmin, xmax = _view_range(P)
+    fig, _, _ = _base_section(go, P, T)
+    fig.update_layout(
+        xaxis=dict(title="Distance (m)", range=[xmin, xmax]),
+        yaxis=dict(title="Elevation (m)", range=[-D * 1.05, H * 2.2],
+                   scaleanchor="x", scaleratio=1),
+        height=height, margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(orientation="h", y=-0.22))
+    return _style(fig, T, dark)
+
+
+def fig_section(P, res, show_slices=True, show_trials=True, dark=False,
+                title=True, height=520):
+    import plotly.graph_objects as go
+
+    T = _theme(dark)
+    H, D = P["H"], P["Dmax"]
+    xmin, xmax = _view_range(P)
+    fig, x, gy = _base_section(go, P, T)
 
     b = res["best"]
     xe, xi, R = float(b["xe"][0]), float(b["xi"][0]), float(b["R"][0])
@@ -341,8 +393,7 @@ def fig_section(P, res, show_slices=True, show_trials=True):
             tx += list(ax_) + [None]
             ty += list(ay_) + [None]
         fig.add_trace(go.Scatter(
-            x=tx, y=ty, mode="lines",
-            line=dict(color="rgba(120,120,120,0.45)", width=1),
+            x=tx, y=ty, mode="lines", line=dict(color=T["trial"], width=1),
             name="Other trial circles", hoverinfo="skip"))
 
     ax_, ay_ = arc_xy(xe, xi, xc, yc, R)
@@ -351,7 +402,7 @@ def fig_section(P, res, show_slices=True, show_trials=True):
         x=np.concatenate([ax_, ax_[::-1]]),
         y=np.concatenate([ay_, top_[::-1]]),
         fill="toself", mode="lines", line=dict(width=0),
-        fillcolor="rgba(229,72,77,0.25)", name="Sliding mass",
+        fillcolor="rgba(239,68,68,0.28)", name="Sliding mass",
         hoverinfo="skip"))
 
     if show_slices:
@@ -364,45 +415,48 @@ def fig_section(P, res, show_slices=True, show_trials=True):
             sx += [a, a, None]
             sy += [bb, c_, None]
         fig.add_trace(go.Scatter(x=sx, y=sy, mode="lines",
-                                 line=dict(color="rgba(80,80,80,0.55)", width=1),
+                                 line=dict(color=T["slice"], width=1),
                                  name="Slices", hoverinfo="skip"))
 
     fig.add_trace(go.Scatter(x=ax_, y=ay_, mode="lines",
-                             line=dict(color="#e5484d", width=4),
+                             line=dict(color="#ef4444", width=4),
                              name="Critical slip surface"))
     fig.add_trace(go.Scatter(
         x=[xc, xe, xc, xi], y=[yc, ground_y(xe, P), yc, ground_y(xi, P)],
-        mode="lines", line=dict(color="#e5484d", width=1, dash="dot"),
+        mode="lines", line=dict(color="#ef4444", width=1, dash="dot"),
         showlegend=False, hoverinfo="skip"))
     fig.add_trace(go.Scatter(
         x=[xc], y=[yc], mode="markers",
-        marker=dict(color="#e5484d", size=11, symbol="cross"),
+        marker=dict(color="#ef4444", size=11, symbol="cross"),
         name="Circle centre",
         hovertext=[f"centre ({xc:.2f}, {yc:.2f}) m, R = {R:.2f} m"],
         hoverinfo="text"))
 
     F = res["fos_bishop"] if res["method"] == "Bishop" else res["fos_fellenius"]
-    fig.update_layout(
-        title=f"Critical slip surface - FoS = {F:.3f} ({res['method']})",
+    layout = dict(
         xaxis=dict(title="Distance (m)", range=[xmin, xmax]),
         yaxis=dict(title="Elevation above toe (m)",
                    range=[-D * 1.05, H * 2.2], scaleanchor="x", scaleratio=1),
-        height=520, margin=dict(l=10, r=10, t=50, b=10),
-        legend=dict(orientation="h", y=-0.18),
+        height=height, margin=dict(l=10, r=10, t=50 if title else 10, b=10),
+        legend=dict(orientation="h", y=-0.2 if dark else -0.18),
         hovermode="closest")
-    return fig
+    if title:
+        layout["title"] = f"Critical slip surface - FoS = {F:.3f} ({res['method']})"
+    fig.update_layout(**layout)
+    return _style(fig, T, dark)
 
 
-def fig_centres(P, res):
+def fig_centres(P, res, dark=False):
     import plotly.graph_objects as go
 
+    T = _theme(dark)
     c = res["cloud"]
     xmin, xmax = _view_range(P)
     x = np.linspace(xmin, xmax, 300)
     Fmin = float(np.min(c["F"]))
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x, y=ground_y(x, P), mode="lines",
-                             line=dict(color="#222222", width=2),
+                             line=dict(color=T["ground"], width=2),
                              name="Ground surface"))
     fig.add_trace(go.Scatter(
         x=c["xc"], y=c["yc"], mode="markers",
@@ -414,7 +468,8 @@ def fig_centres(P, res):
     b = res["best"]
     fig.add_trace(go.Scatter(
         x=[float(b["xc"][0])], y=[float(b["yc"][0])], mode="markers",
-        marker=dict(size=16, color="#000000", symbol="star"),
+        marker=dict(size=16, color="#facc15" if dark else "#000000",
+                    symbol="star"),
         name="Critical centre"))
     fig.update_layout(
         title="Safety-factor map of trial circle centres",
@@ -422,7 +477,7 @@ def fig_centres(P, res):
         yaxis=dict(title="Elevation (m)", scaleanchor="x", scaleratio=1),
         height=460, margin=dict(l=10, r=10, t=50, b=10),
         legend=dict(orientation="h", y=-0.2))
-    return fig
+    return _style(fig, T, dark)
 
 
 def _strip_mesh(go, xs, zu, zl, y, color, name, opacity=1.0, showlegend=False):
@@ -440,9 +495,10 @@ def _strip_mesh(go, xs, zu, zl, y, color, name, opacity=1.0, showlegend=False):
         showlegend=showlegend, hoverinfo="name")
 
 
-def fig_3d(P, res, width=20.0):
+def fig_3d(P, res, width=20.0, dark=False, height=620, title=True):
     import plotly.graph_objects as go
 
+    T = _theme(dark)
     D = P["Dmax"]
     xmin, xmax = _view_range(P)
     x = np.linspace(xmin, xmax, 220)
@@ -451,7 +507,6 @@ def fig_3d(P, res, width=20.0):
     X, Y = np.meshgrid(x, yv)
     fig = go.Figure()
 
-    # layered front and back faces
     for face_y in (0.0, float(width)):
         for i in range(P["nlayers"]):
             upper = np.minimum(gy, P["hi"][i])
@@ -461,13 +516,11 @@ def fig_3d(P, res, width=20.0):
                 go, x, upper, lower, face_y, LAYER_COLORS[i % len(LAYER_COLORS)],
                 f"Layer {i + 1}", 1.0, showlegend=(face_y == 0.0)))
 
-    # translucent ground surface
     fig.add_trace(go.Surface(
         x=X, y=Y, z=np.tile(gy, (2, 1)), surfacecolor=np.tile(gy, (2, 1)),
         colorscale=[[0, "#cdb48a"], [1, "#8fb36b"]], showscale=False,
         opacity=0.55, name="Ground surface", showlegend=True))
 
-    # water table plane
     if P["water_on"]:
         wy = water_y(x, P)
         fig.add_trace(go.Surface(
@@ -475,7 +528,6 @@ def fig_3d(P, res, width=20.0):
             colorscale=[[0, "#1e90ff"], [1, "#1e90ff"]], showscale=False,
             opacity=0.35, name="Water table", showlegend=True))
 
-    # slip surface
     b = res["best"]
     xe, xi, R = float(b["xe"][0]), float(b["xi"][0]), float(b["R"][0])
     xc, yc = float(b["xc"][0]), float(b["yc"][0])
@@ -483,64 +535,67 @@ def fig_3d(P, res, width=20.0):
     SX, SY = np.meshgrid(sx, yv)
     fig.add_trace(go.Surface(
         x=SX, y=SY, z=np.tile(sz, (2, 1)),
-        colorscale=[[0, "#e5484d"], [1, "#e5484d"]], showscale=False,
+        colorscale=[[0, "#ef4444"], [1, "#ef4444"]], showscale=False,
         opacity=0.85, name="Critical slip surface", showlegend=True))
 
-    # sliding mass highlighted on the front face
     fig.add_trace(_strip_mesh(go, sx, ground_y(sx, P), sz,
-                              -0.01 * max(width, 1.0), "#e5484d",
+                              -0.01 * max(width, 1.0), "#ef4444",
                               "Sliding mass", 0.6, showlegend=True))
 
-    # outlines
     for face_y in (0.0, float(width)):
         fig.add_trace(go.Scatter3d(
             x=x, y=np.full_like(x, face_y), z=gy, mode="lines",
-            line=dict(color="#222222", width=5), showlegend=False,
+            line=dict(color=T["ground"], width=5), showlegend=False,
             hoverinfo="skip"))
 
     F = res["fos_bishop"] if res["method"] == "Bishop" else res["fos_fellenius"]
-    fig.update_layout(
-        title=f"3D view (2D analysis extruded over {width:g} m) - FoS = {F:.3f}",
+    layout = dict(
         scene=dict(
             aspectmode="data",
             xaxis=dict(title="Distance (m)"),
             yaxis=dict(title="Width (m)"),
             zaxis=dict(title="Elevation (m)"),
             camera=dict(eye=dict(x=1.5, y=-1.9, z=0.9))),
-        height=620, margin=dict(l=0, r=0, t=50, b=0),
+        height=height, margin=dict(l=0, r=0, t=50 if title else 0, b=0),
         legend=dict(orientation="h", y=-0.05))
-    return fig
+    if title:
+        layout["title"] = (f"3D view (2D analysis extruded over {width:g} m)"
+                           f" - FoS = {F:.3f}")
+    fig.update_layout(**layout)
+    return _style(fig, T, dark, scene=True)
 
 
-def fig_parametric(df, label, current, ):
+def fig_parametric(df, label, current, dark=False):
     import plotly.graph_objects as go
 
+    T = _theme(dark)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df["value"], y=df["Bishop"], mode="lines+markers",
                              name="Bishop", line=dict(width=3)))
     fig.add_trace(go.Scatter(x=df["value"], y=df["Fellenius"], mode="lines+markers",
                              name="Fellenius", line=dict(width=2, dash="dash")))
-    fig.add_hline(y=1.0, line=dict(color="#e5484d", dash="dot"),
+    fig.add_hline(y=1.0, line=dict(color="#ef4444", dash="dot"),
                   annotation_text="FoS = 1.0 (failure)")
-    fig.add_hline(y=1.5, line=dict(color="#2e9e5b", dash="dot"),
+    fig.add_hline(y=1.5, line=dict(color="#22c55e", dash="dot"),
                   annotation_text="FoS = 1.5 (target)")
     if current is not None:
-        fig.add_vline(x=current, line=dict(color="#888888", dash="dash"),
+        fig.add_vline(x=current, line=dict(color="#94a3b8", dash="dash"),
                       annotation_text="current")
     fig.update_layout(
         title=f"Factor of safety vs {label}",
         xaxis=dict(title=label), yaxis=dict(title="Factor of safety"),
         height=440, margin=dict(l=10, r=10, t=50, b=10),
         legend=dict(orientation="h", y=-0.2))
-    return fig
+    return _style(fig, T, dark)
 
 
-def fig_sites_map(df):
+def fig_sites_map(df, dark=False):
     import plotly.express as px
 
     d = df.copy()
     d["size"] = 14
     center, zoom = auto_view(d)
+    style = "carto-darkmatter" if dark else "open-street-map"
     kwargs = dict(lat="Lat", lon="Lon", color="Status",
                   color_discrete_map=STATUS_COLORS, hover_name="Site",
                   hover_data={"FoS": ":.2f", "Lat": ":.5f", "Lon": ":.5f",
@@ -548,10 +603,13 @@ def fig_sites_map(df):
                   size="size", size_max=16, zoom=zoom, center=center,
                   height=460)
     try:
-        fig = px.scatter_map(d, map_style="open-street-map", **kwargs)
+        fig = px.scatter_map(d, map_style=style, **kwargs)
     except AttributeError:  # older plotly
-        fig = px.scatter_mapbox(d, mapbox_style="open-street-map", **kwargs)
+        fig = px.scatter_mapbox(d, mapbox_style=style, **kwargs)
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+    if dark:
+        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",
+                          font=dict(color="#cbd5e1"))
     return fig
 
 
@@ -726,7 +784,7 @@ def results_table(P, res):
 
 
 # =====================================================================
-# 7. STREAMLIT APP
+# 7. STREAMLIT APP - SlopeLab studio interface
 # =====================================================================
 def _cache(fn):
     if st is None:
@@ -739,276 +797,853 @@ def cached_search(M_, nsl_, method_, density_):
     return search(prepare(M_), nsl=nsl_, method=method_, density=density_)
 
 
-def main():
-    st.set_page_config(page_title="SlopeLab - Slope Stability Studio",
-                       page_icon="⛰️", layout="wide")
+GREEN, AMBER, RED, BLUE = "#22c55e", "#f59e0b", "#ef4444", "#3b82f6"
+PAGES = ["Model", "Geometry", "Soil Layers", "Water Table", "Analysis",
+         "Settings", "Help"]
+PAGE_ICONS = {"Model": "📄", "Geometry": "📐", "Soil Layers": "🧱",
+              "Water Table": "💧", "Analysis": "📊", "Settings": "⚙️",
+              "Help": "❓"}
 
-    def show_plot(fig, key=None):
-        try:
-            st.plotly_chart(fig, width="stretch", key=key)
-        except TypeError:
-            st.plotly_chart(fig, use_container_width=True, key=key)
+# Keys that define a worksheet's model (used to detect changed inputs)
+MODEL_KEYS = (["H", "beta", "Dfac", "nl", "wmode", "wd", "hwt", "hwc"]
+              + [f"L{i}_{k}" for i in range(1, 5)
+                 for k in ("t", "gam", "gsat", "c", "phi")])
 
-    def show_df(df):
-        try:
-            st.dataframe(df, width="stretch", hide_index=True)
-        except TypeError:
-            st.dataframe(df, use_container_width=True, hide_index=True)
+THEME_CSS = """
+<style>
+:root{--bg:#0b1220;--card:#0f1a2d;--line:#1c3050;--text:#e6edf7;--muted:#93a4bd;}
+.stApp{background:var(--bg);color:var(--text);}
+[data-testid="stHeader"]{background:transparent;}
+.block-container{padding-top:1rem;padding-bottom:2rem;max-width:1600px;}
+.stApp, .stApp p, .stApp label, .stApp li, .stApp h1, .stApp h2, .stApp h3,
+.stApp h4, .stApp [data-testid="stMarkdownContainer"],
+.stApp [data-testid="stCaptionContainer"]{color:var(--text);}
+[data-testid="stCaptionContainer"]{color:var(--muted)!important;}
+[data-testid="stSidebar"]{background:#0a111e;border-right:1px solid var(--line);}
+[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{display:none;}
+/* inputs */
+div[data-baseweb="input"],div[data-baseweb="base-input"],
+div[data-baseweb="select"]>div{background:#0a1424!important;
+ border-color:#1f3556!important;border-radius:8px!important;}
+.stApp input,.stApp textarea{color:var(--text)!important;
+ -webkit-text-fill-color:var(--text)!important;}
+[data-testid="stNumberInput"] button{background:#0f1d33!important;color:#cbd5e1!important;}
+[data-testid="stNumberInput"] label p,[data-testid="stTextInput"] label p,
+[data-testid="stSelectbox"] label p,[data-testid="stSlider"] label p{
+ color:#c7d2e4!important;font-size:.92rem;}
+/* bordered containers = cards */
+[data-testid="stVerticalBlockBorderWrapper"]{border:1px solid var(--line)!important;
+ border-radius:12px!important;background:var(--card);}
+/* primary button = Run Analysis */
+[data-testid="stBaseButton-primary"],button[kind="primary"]{
+ background:linear-gradient(90deg,#16c46a,#0e9f6e)!important;
+ border:1px solid #22c55e!important;color:#fff!important;font-weight:700;
+ font-size:1.15rem;min-height:3.2rem;border-radius:10px;width:100%;}
+[data-testid="stBaseButton-primary"]:hover{filter:brightness(1.1);}
+[data-testid="stBaseButton-secondary"],button[kind="secondary"]{
+ background:#0f1d33;border:1px solid #1f3556;color:#dbe6f6;border-radius:10px;}
+.st-key-newws button{background:transparent!important;border:1.5px solid #3b82f6!important;
+ color:#60a5fa!important;font-weight:600;min-height:3rem;width:100%;}
+.st-key-delws button{background:transparent!important;border:1.5px solid #ef4444!important;
+ color:#f87171!important;font-weight:600;min-height:3rem;width:100%;}
+/* worksheet tabs + view toggle + sidebar navigation (radio as pills) */
+.st-key-wstabs div[role="radiogroup"],.st-key-viewtoggle div[role="radiogroup"]{gap:6px;flex-wrap:wrap;}
+.st-key-wstabs label,.st-key-viewtoggle label{background:#101c2f;border:1px solid #1f3556;
+ border-radius:10px;padding:.65rem 1.3rem;cursor:pointer;}
+.st-key-viewtoggle label{padding:.4rem .9rem;}
+.st-key-wstabs label>div:first-child,.st-key-viewtoggle label>div:first-child,
+[data-testid="stSidebar"] label>div:first-child:has(+ div){display:none;}
+.st-key-wstabs label:has(input:checked),.st-key-viewtoggle label:has(input:checked){
+ background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:#3b82f6;}
+[data-testid="stSidebar"] div[role="radiogroup"]{gap:2px;}
+[data-testid="stSidebar"] div[role="radiogroup"] label{width:100%;padding:.7rem 1rem;
+ border-radius:8px;border-left:3px solid transparent;cursor:pointer;}
+[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked){
+ background:linear-gradient(90deg,#1e3a8a,#12284a);border-left:3px solid #3b82f6;}
+/* html cards */
+.sl-card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+ padding:14px 16px;margin-bottom:12px;}
+.sl-title{font-weight:700;font-size:1.05rem;}
+.sl-sub{color:var(--muted);font-size:.88rem;}
+.sl-green{color:#22c55e;font-weight:700;font-size:1.05rem;}
+.sl-fos{font-size:3.4rem;font-weight:800;line-height:1;}
+.sl-pill{display:block;text-align:center;border-radius:999px;padding:.55rem 1rem;
+ font-weight:700;margin-top:10px;}
+.sl-row{display:flex;align-items:center;gap:10px;margin:6px 0;}
+.sl-dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
+.sl-ok{display:inline-flex;width:20px;height:20px;border-radius:50%;
+ align-items:center;justify-content:center;font-size:.8rem;color:#0b1220;}
+.sl-empty{border:1px dashed #28446e;border-radius:12px;text-align:center;
+ padding:3.2rem 1rem;color:var(--muted);}
+</style>
+"""
 
-    for k, v in DEFAULTS.items():
-        st.session_state.setdefault(k, v)
-    st.session_state.setdefault("sites", [])
+
+# ------------------------------------------------------------ state helpers
+def blank_params(n):
+    p = dict(H=0.0, beta=0.0, Dfac=2.0, nl=1, wmode="Depth below crest",
+             wd=0.0, hwt=0.0, hwc=0.0, width=20.0, view="2D View",
+             site_name=f"Site {n}", lat=6.6101, lon=0.4703,
+             place_query="", place_msg="")
+    p.update(_layer_defaults())
+    p.update(L1_gam=0.0, L1_gsat=0.0, L1_c=0.0, L1_phi=0.0)
+    return p
+
+
+def apply_example(p, preset):
+    """Write a PRESETS entry into a worksheet's parameters."""
+    for k, v in preset.items():
+        if k == "nlayers":
+            p["nl"] = int(v)
+        elif k == "water_on":
+            if not v:
+                p["wd"], p["wmode"] = 0.0, "Depth below crest"
+            else:
+                p["wmode"] = "Custom line"
+        elif k == "hw_toe":
+            p["hwt"] = float(v)
+        elif k == "hw_crest":
+            p["hwc"] = float(v)
+        else:
+            p[k] = float(v)
+
+
+def example_params(n, preset_name="Default homogeneous slope"):
+    p = blank_params(n)
+    apply_example(p, PRESETS[preset_name])
+    return p
+
+
+def validate(p):
+    """Message describing what is missing, or None if the model can be run."""
+    nl = int(p["nl"])
+    if p["H"] <= 0:
+        return "Enter the slope height (H)."
+    if not 10 <= p["beta"] <= 80:
+        return "Slope angle (β) must be between 10° and 80°."
+    for i in range(1, nl + 1):
+        if p[f"L{i}_gam"] < 10:
+            return f"Enter the unit weight (γ) for layer {i} (typically 16-22 kN/m³)."
+        if p[f"L{i}_c"] <= 0 and p[f"L{i}_phi"] <= 0:
+            return f"Enter the cohesion and/or friction angle for layer {i}."
+    for i in range(1, nl):
+        if p[f"L{i}_t"] <= 0:
+            return f"Enter a thickness for layer {i}."
+    return None
+
+
+def model_from_params(p):
+    nl = int(p["nl"])
+    layers = []
+    for i in range(1, nl + 1):
+        gam = float(p[f"L{i}_gam"])
+        layers.append(dict(
+            t=float(p[f"L{i}_t"]), gam=gam,
+            gsat=max(float(p[f"L{i}_gsat"]), gam),
+            c=float(p[f"L{i}_c"]), phi=float(p[f"L{i}_phi"])))
+    if p["wmode"] == "Custom line":
+        water_on, hwt, hwc = True, float(p["hwt"]), float(p["hwc"])
+    elif p["wd"] > 0:
+        level = float(p["H"]) - float(p["wd"])
+        water_on, hwt, hwc = True, level, level
+    else:
+        water_on, hwt, hwc = False, 0.0, 0.0
+    return dict(H=float(p["H"]), beta=float(p["beta"]), Dfac=float(p["Dfac"]),
+                layers=layers, water_on=water_on, hw_toe=hwt, hw_crest=hwc)
+
+
+def _sig(p, stg):
+    return (tuple(p[k] for k in MODEL_KEYS),
+            stg["method"], stg["density"], int(stg["nsl"]))
+
+
+def status3(F):
+    """Three-band classification used by the interface."""
+    if not np.isfinite(F):
+        return "Unavailable", "#64748b"
+    if F < 1.0:
+        return "Unstable", RED
+    if F < 1.5:
+        return "Marginal", AMBER
+    return "Stable", GREEN
+
+
+def exit_text(xe):
+    if abs(xe) < 0.05:
+        return "at the toe"
+    if xe < 0:
+        return f"{abs(xe):.1f} m beyond the toe"
+    return f"{xe:.1f} m up the slope from the toe"
+
+
+# --------------------------------------------------------------- callbacks
+def run_analysis(wid):
     S = st.session_state
-
-    def apply_preset():
-        name = S["preset"]
-        if name in PRESETS:
-            for k, v in PRESETS[name].items():
-                S[k] = v
-
-    def find_place():
-        q = str(S.get("place_query", "")).strip()
-        if not q:
-            S["place_msg"] = "Type a place name first."
-            return
-        try:
-            hit = geocode(q)
-        except Exception:  # noqa: BLE001
-            S["place_msg"] = ("Could not reach the place-search service. "
-                              "Type the coordinates instead.")
-            return
-        if hit is None:
-            S["place_msg"] = f"No place found for '{q}'. Try a fuller name."
-            return
-        S["lat"], S["lon"] = round(hit[0], 5), round(hit[1], 5)
-        S["place_msg"] = "Found: " + hit[2]
-
-    st.markdown(
-        """
-        <div style="padding:14px 18px;border-radius:12px;
-        background:linear-gradient(90deg,#1f6feb 0%,#2e9e5b 100%);color:white;">
-        <div style="font-size:1.6rem;font-weight:700;">⛰️ SlopeLab</div>
-        <div style="opacity:.9;">Slope stability studio - layered soils, water table,
-        critical-circle search, 3D view and site map</div></div>
-        """, unsafe_allow_html=True)
-
-    # ------------------------------------------------------------ sidebar
-    with st.sidebar:
-        st.header("Model")
-        st.selectbox("Load an example", ["-"] + list(PRESETS.keys()),
-                     key="preset", on_change=apply_preset)
-
-        st.subheader("Geometry")
-        c1, c2 = st.columns(2)
-        c1.number_input("Height H (m)", min_value=1.0, max_value=100.0,
-                        step=0.5, key="H")
-        c2.number_input("Angle (deg)", min_value=10.0, max_value=80.0,
-                        step=1.0, key="beta")
-        st.number_input("Model depth below toe (x H)", min_value=0.5,
-                        max_value=6.0, step=0.5, key="Dfac")
-
-        st.subheader("Soil layers")
-        st.selectbox("Number of layers", [1, 2, 3, 4], key="nlayers")
-        for i in range(1, int(S["nlayers"]) + 1):
-            last = i == int(S["nlayers"])
-            with st.expander(f"Layer {i}", expanded=(i == 1)):
-                if not last:
-                    st.number_input("Thickness (m)", min_value=0.1,
-                                    max_value=100.0, step=0.5, key=f"L{i}_t")
-                else:
-                    st.caption("Extends down to the model base")
-                a, b_ = st.columns(2)
-                a.number_input("Unit weight (kN/m3)", min_value=10.0,
-                               max_value=26.0, step=0.5, key=f"L{i}_gam")
-                b_.number_input("Saturated (kN/m3)", min_value=10.0,
-                                max_value=26.0, step=0.5, key=f"L{i}_gsat")
-                a2, b2 = st.columns(2)
-                a2.number_input("c' (kPa)", min_value=0.0, max_value=500.0,
-                                step=1.0, key=f"L{i}_c")
-                b2.number_input("phi' (deg)", min_value=0.0, max_value=50.0,
-                                step=1.0, key=f"L{i}_phi")
-
-        st.subheader("Water table")
-        st.checkbox("Include water table", key="water_on")
-        if S["water_on"]:
-            w1, w2 = st.columns(2)
-            w1.number_input("At toe (m)", min_value=-50.0, max_value=100.0,
-                            step=0.5, key="hw_toe")
-            w2.number_input("At crest (m)", min_value=-50.0, max_value=100.0,
-                            step=0.5, key="hw_crest")
-            st.caption("Levels are measured up from the toe. Pore pressure is "
-                       "taken as hydrostatic below this line (conservative).")
-
-        st.subheader("Analysis")
-        st.radio("Method", ["Bishop", "Fellenius"], key="method", horizontal=True)
-        st.select_slider("Search density", ["Fast", "Standard", "Fine"],
-                         key="density")
-        st.slider("Number of slices", 15, 60, key="nsl")
-
-        st.subheader("Site")
-        st.text_input("Site name", key="site_name")
-        st.text_input("Search any place in the world", key="place_query",
-                      placeholder="e.g. Ho Technical University, Ghana")
-        st.button("Find place", on_click=find_place)
-        if S.get("place_msg"):
-            st.caption(S["place_msg"])
-        l1, l2 = st.columns(2)
-        l1.number_input("Latitude", min_value=-90.0, max_value=90.0,
-                        step=0.0001, format="%.5f", key="lat")
-        l2.number_input("Longitude", min_value=-180.0, max_value=180.0,
-                        step=0.0001, format="%.5f", key="lon")
-        st.number_input("3D block width (m)", min_value=2.0, max_value=200.0,
-                        step=1.0, key="width")
-
-    # --------------------------------------------------------- analysis
-    for i in range(1, int(S["nlayers"]) + 1):
-        if S[f"L{i}_gsat"] < S[f"L{i}_gam"]:
-            st.warning(f"Layer {i}: saturated unit weight is below the "
-                       "unit weight. Check your inputs.")
-
-    M = model_from_state(S)
-
-    with st.spinner("Searching for the critical slip surface..."):
-        res = cached_search(M, int(S["nsl"]), S["method"], S["density"])
-
+    p, stg = S["store"][wid], S["store"]["settings"]
+    err = validate(p)
+    if err:
+        S["flash"] = ("error", err)
+        return
+    M = model_from_params(p)
+    res = cached_search(M, int(stg["nsl"]), stg["method"], stg["density"])
     if res is None:
-        st.error("No valid slip surface was found for this model. Try a larger "
-                 "model depth, a steeper slope, or weaker soil.")
+        S["flash"] = ("error", "No valid slip surface was found. Try a larger "
+                      "model depth (Geometry page) or different soil values.")
+        return
+    S["results"][wid] = dict(sig=_sig(p, stg), M=M, res=res)
+    S["flash"] = None
+
+
+def add_ws():
+    S = st.session_state
+    wid = S["next_id"]
+    S["next_id"] += 1
+    S["store"][wid] = blank_params(wid)
+    S["ws"].append(dict(id=wid, kind="Blank"))
+    S["store"]["ui"]["active"] = wid
+
+
+def delete_ws():
+    S = st.session_state
+    wid = S["store"]["ui"]["active"]
+    if len(S["ws"]) == 1:  # keep one worksheet: reset it to blank
+        S["store"][wid] = blank_params(wid)
+        S["ws"][0]["kind"] = "Blank"
+        S["results"].pop(wid, None)
+        return
+    S["ws"] = [w for w in S["ws"] if w["id"] != wid]
+    S["store"].pop(wid, None)
+    S["results"].pop(wid, None)
+    for k in [k for k in S.keys() if str(k).startswith(f"f_{wid}_")]:
+        del S[k]
+    S["store"]["ui"]["active"] = S["ws"][0]["id"]
+
+
+def load_example():
+    S = st.session_state
+    name = S.get("ex_pick")
+    wid = S["store"]["ui"]["active"]
+    if name in PRESETS:
+        p = blank_params(wid)
+        apply_example(p, PRESETS[name])
+        p["site_name"] = S["store"][wid]["site_name"]
+        S["store"][wid] = p
+        for w in S["ws"]:
+            if w["id"] == wid:
+                w["kind"] = "Example"
+        S["results"].pop(wid, None)
+    S["ex_pick"] = None
+
+
+def find_place(wid):
+    S = st.session_state
+    p = S["store"][wid]
+    q = str(p.get("place_query", "")).strip()
+    if not q:
+        p["place_msg"] = "Type a place name first."
+        return
+    try:
+        hit = geocode(q)
+    except Exception:  # noqa: BLE001
+        p["place_msg"] = ("Could not reach the place-search service. "
+                          "Type the coordinates instead.")
+        return
+    if hit is None:
+        p["place_msg"] = f"No place found for '{q}'. Try a fuller name."
+        return
+    p["lat"], p["lon"] = round(hit[0], 5), round(hit[1], 5)
+    p["place_msg"] = "Found: " + hit[2]
+
+
+def reset_app():
+    S = st.session_state
+    for k in list(S.keys()):
+        del S[k]
+
+
+def init_state():
+    S = st.session_state
+    if "store" in S:
+        return
+    S["store"] = {
+        "settings": dict(method="Bishop", density="Standard", nsl=30),
+        "ui": dict(page="Model", active=1),
+        1: example_params(1),
+    }
+    S["ws"] = [dict(id=1, kind="Example")]
+    S["next_id"] = 2
+    S["results"] = {}
+    S["sites"] = []
+    S["flash"] = None
+    run_analysis(1)  # the app opens with the example already analysed
+
+
+# ------------------------------------------------------------ widget helpers
+def field(kind, label, owner, name, **kw):
+    """A widget whose value lives in S['store'][owner][name].
+
+    The value is re-seeded on every run, so it survives page changes (Streamlit
+    forgets widgets that are not drawn on the current page)."""
+    S = st.session_state
+    key = f"f_{owner}_{name}"
+    S[key] = S["store"][owner][name]
+
+    def cb():
+        S["store"][owner][name] = S[key]
+
+    fn = dict(num=st.number_input, sel=st.selectbox, chk=st.checkbox,
+              txt=st.text_input, rad=st.radio, sld=st.slider,
+              ssl=st.select_slider)[kind]
+    return fn(label, key=key, on_change=cb, **kw)
+
+
+def box(key=None, border=False):
+    try:
+        return st.container(border=border, key=key)
+    except TypeError:
+        try:
+            return st.container(border=border)
+        except TypeError:
+            return st.container()
+
+
+def show_plot(fig, key=None):
+    try:
+        st.plotly_chart(fig, width="stretch", key=key)
+    except Exception:  # noqa: BLE001
+        st.plotly_chart(fig, use_container_width=True, key=key)
+
+
+def show_df(df):
+    try:
+        st.dataframe(df, width="stretch", hide_index=True)
+    except Exception:  # noqa: BLE001
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+def card_title(icon, text, sub=None, color=None):
+    sub_html = f'<div class="sl-sub">{sub}</div>' if sub else ""
+    style = f' style="color:{color}"' if color else ""
+    return (f'<div class="sl-card"><div class="sl-title"{style}>{icon}&nbsp; '
+            f'{text}</div>{sub_html}</div>')
+
+
+def shield_svg(color, symbol):
+    marks = {
+        "check": '<path d="M20 37 L29 46 L45 26" stroke="#0b1220" stroke-width="6" '
+                 'fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+        "warn": '<path d="M32 22 V40 M32 48 V49" stroke="#0b1220" stroke-width="7" '
+                'fill="none" stroke-linecap="round"/>',
+        "cross": '<path d="M22 26 L42 46 M42 26 L22 46" stroke="#0b1220" '
+                 'stroke-width="6" fill="none" stroke-linecap="round"/>',
+    }
+    return ('<svg width="66" height="74" viewBox="0 0 64 72"><path d="M32 4 L58 14 '
+            'V36 C58 52 46 63 32 68 C18 63 6 52 6 36 V14 Z" fill="' + color + '"/>'
+            + marks[symbol] + '</svg>')
+
+
+def results_panel(entry, stale):
+    """Right-hand panel: results, key findings, guidelines, recommendations."""
+    if entry is None:
+        st.markdown(
+            '<div class="sl-card" style="border-color:#1f5a3a">'
+            '<div class="sl-title" style="font-size:1.2rem">📊&nbsp; Analysis Results</div>'
+            '<div class="sl-sub" style="margin-top:14px">No results yet. Enter your '
+            'parameters and press <b>Run Analysis</b>.</div>'
+            '<span class="sl-pill" style="background:#1b2a42;color:#93a4bd">'
+            'Awaiting analysis</span></div>', unsafe_allow_html=True)
+        _guidelines()
         return
 
-    P = prepare(M)
-    F = res["fos_bishop"] if S["method"] == "Bishop" else res["fos_fellenius"]
-    label, kind = status_of(F)
+    res = entry["res"]
+    method = res["method"]
+    F = res["fos_bishop"] if method == "Bishop" else res["fos_fellenius"]
+    other = res["fos_fellenius"] if method == "Bishop" else res["fos_bishop"]
+    label, color = status3(F)
+    symbol = {"Stable": "check", "Marginal": "warn"}.get(label, "cross")
+    b = res["best"]
+    xe, R = float(b["xe"][0]), float(b["R"][0])
+    fos_txt = f"{F:.2f}" if np.isfinite(F) else "-"
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("FoS - Bishop", f"{res['fos_bishop']:.3f}")
-    m2.metric("FoS - Fellenius", f"{res['fos_fellenius']:.3f}")
-    m3.metric("Status", label)
-    getattr(st, kind)(f"{S['method']}: factor of safety {F:.3f} - {label}")
+    st.markdown(
+        f'<div class="sl-card" style="border-color:#1f5a3a">'
+        f'<div class="sl-title" style="font-size:1.2rem">📊&nbsp; Analysis Results</div>'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'margin-top:14px;gap:12px">'
+        f'<div style="display:flex;align-items:center;gap:14px">{shield_svg(color, symbol)}'
+        f'<div><div class="sl-sub">Factor of Safety (FOS)</div>'
+        f'<div class="sl-fos" style="color:{color}">{fos_txt}</div></div></div>'
+        f'<div style="border-left:1px solid #1f3556;padding-left:14px">'
+        f'<div class="sl-sub">Method</div>'
+        f'<div style="font-size:1.4rem;font-weight:800">{method}</div></div></div>'
+        f'<span class="sl-pill" style="border:1.5px solid {color};color:{color};'
+        f'background:rgba(255,255,255,0.03)">Slope is {label.upper()}</span></div>',
+        unsafe_allow_html=True)
+    if stale:
+        st.markdown('<div class="sl-card" style="border-color:#7a5a12;color:#f3c969">'
+                    'Inputs changed since this analysis. Press <b>Run Analysis</b> '
+                    'to update the results.</div>', unsafe_allow_html=True)
 
-    tabs = st.tabs(["2D section", "3D view", "Parametric study",
-                    "Sites map", "About"])
+    result_line = {"Stable": "Safe (FOS ≥ 1.5)",
+                   "Marginal": "Marginal (1.0 ≤ FOS < 1.5)",
+                   "Unstable": "Unsafe (FOS < 1.0)"}.get(label, "Not available")
+    rows = [
+        ("Critical Slip Surface", f"exits {exit_text(xe)}, radius {R:.1f} m"),
+        ("Minimum FOS", f"{fos_txt} ({method}); other method {other:.2f}"),
+        ("Result", result_line),
+    ]
+    kf = "".join(
+        f'<div class="sl-row"><span class="sl-ok" style="background:{color}">✔</span>'
+        f'<span><b>{a}:</b> {v}</span></div>' for a, v in rows)
+    st.markdown(f'<div class="sl-card"><div class="sl-title">💡&nbsp; Key Findings</div>'
+                f'<div style="margin-top:8px">{kf}</div></div>',
+                unsafe_allow_html=True)
+    _guidelines()
 
-    # ------------------------------------------------------------ 2D tab
-    with tabs[0]:
-        o1, o2 = st.columns(2)
-        show_sl = o1.checkbox("Show slices", value=True)
-        show_tr = o2.checkbox("Show other trial circles", value=True)
-        show_plot(fig_section(P, res, show_sl, show_tr), key="fig2d")
-        with st.expander("Safety-factor map of trial circle centres"):
-            show_plot(fig_centres(P, res), key="figmap")
-        st.subheader("Results")
-        tbl = results_table(P, res)
-        show_df(tbl)
-        st.download_button("Download results (CSV)",
-                           tbl.to_csv(index=False).encode("utf-8"),
-                           "slope_results.csv", "text/csv")
+    advice = {
+        "Stable": "Your slope is stable. Continue with the current design or consider "
+                  "additional checks for critical conditions (heavy rain, loading, "
+                  "long-term strength).",
+        "Marginal": "The slope is marginal. Consider a flatter angle, lower height, "
+                    "better drainage to lower the water table, or ground improvement, "
+                    "then re-run the analysis.",
+        "Unstable": "The slope is unstable. A redesign is needed: reduce the angle or "
+                    "height, drain the slope, or add retaining or stabilising measures.",
+    }.get(label, "Check your inputs and run the analysis again.")
+    st.markdown(
+        f'<div class="sl-card" style="border-color:#8a6a14"><div class="sl-title" '
+        f'style="color:#f3c969">'
+        f'<span style="color:{color}">●</span>&nbsp; Recommendations</div>'
+        f'<div style="margin-top:6px">{advice}</div>'
+        f'<div class="sl-sub" style="margin-top:8px">Simplified 2D analysis. Verify '
+        f'against hand calculations or design software before relying on it.</div></div>',
+        unsafe_allow_html=True)
 
-    # ------------------------------------------------------------ 3D tab
-    with tabs[1]:
-        show_plot(fig_3d(P, res, float(S["width"])), key="fig3d")
-        st.caption("Drag to rotate, scroll to zoom. This is a 3D visualisation "
-                   "of the 2D (plane-strain) analysis extruded across the "
-                   "block width. It is not a full 3D stability analysis.")
 
-    # -------------------------------------------------- parametric tab
-    with tabs[2]:
-        label_p = st.selectbox("Parameter to vary", list(PARAMS.keys()))
-        key_p, lim_lo, lim_hi = PARAMS[label_p]
-        cur = current_value(M, key_p)
-        if key_p in ("hw_crest", "hw_toe"):
-            d_lo, d_hi = 0.0, float(M["H"])
+def _guidelines():
+    st.markdown(
+        '<div class="sl-card" style="border-color:#1f4a8a">'
+        '<div class="sl-title" style="color:#60a5fa">ℹ️&nbsp; Safety Guidelines</div>'
+        '<div style="margin-top:8px">'
+        f'<div class="sl-row"><span class="sl-dot" style="background:{RED}"></span>'
+        '<b>FOS &lt; 1.0</b>&nbsp;:&nbsp; Unstable (failure likely)</div>'
+        f'<div class="sl-row"><span class="sl-dot" style="background:{AMBER}"></span>'
+        '<b>1.0 – 1.5</b>&nbsp;:&nbsp; Marginal (use with caution)</div>'
+        f'<div class="sl-row"><span class="sl-dot" style="background:{GREEN}"></span>'
+        '<b>&gt; 1.5</b>&nbsp;:&nbsp; Stable (generally safe)</div></div></div>',
+        unsafe_allow_html=True)
+
+
+# ------------------------------------------------------------------- pages
+def get_entry(wid, p):
+    """(result entry or None, stale flag) for the active worksheet."""
+    S = st.session_state
+    entry = S["results"].get(wid)
+    if entry is None:
+        return None, False
+    return entry, entry["sig"] != _sig(p, S["store"]["settings"])
+
+
+def flash():
+    S = st.session_state
+    if S.get("flash"):
+        kind, msg = S["flash"]
+        getattr(st, kind)(msg)
+        S["flash"] = None
+
+
+def geometry_figure(wid, p, entry, stale, big=False):
+    """2D/3D picture for the Slope Geometry card."""
+    view = p["view"]
+    h = 430 if big else 360
+    err = validate(p)
+    if err:
+        st.markdown(
+            '<div class="sl-empty"><div style="font-size:2.4rem">⛰️</div>'
+            '<div style="font-size:1.2rem;font-weight:600;color:#e6edf7">'
+            'No geometry defined yet</div>Enter your parameters and click '
+            '“Run Analysis”</div>', unsafe_allow_html=True)
+        return
+    P = prepare(model_from_params(p))
+    if entry is not None and not stale:
+        res = entry["res"]
+        if view == "3D View":
+            show_plot(fig_3d(prepare(entry["M"]), res, float(p["width"]),
+                             dark=True, height=h + 60, title=False),
+                      key=f"g3d_{wid}")
         else:
-            d_lo = max(lim_lo, round(cur * 0.5, 1))
-            d_hi = min(lim_hi, round(cur * 1.6, 1) if cur > 0 else lim_lo + 30.0)
-            if d_hi <= d_lo:
-                d_lo, d_hi = lim_lo, min(lim_hi, lim_lo + 30.0)
-        p1, p2, p3 = st.columns(3)
-        v_lo = p1.number_input("From", value=float(d_lo), key=f"pmin_{key_p}")
-        v_hi = p2.number_input("To", value=float(d_hi), key=f"pmax_{key_p}")
-        n_pts = p3.slider("Points", 5, 20, 10, key=f"pn_{key_p}")
-        if st.button("Run parametric study"):
-            if v_hi <= v_lo:
-                st.error("'To' must be larger than 'From'.")
-            else:
-                with st.spinner("Running analyses..."):
-                    vals = np.linspace(v_lo, v_hi, int(n_pts))
-                    df = run_parametric(M, key_p, vals)
-                S["param_result"] = dict(label=label_p, key=key_p, df=df,
-                                         cur=cur)
-        pr = S.get("param_result")
-        if pr is not None:
-            show_plot(fig_parametric(pr["df"], pr["label"], pr["cur"]),
-                      key="figpar")
-            show_df(pr["df"].rename(columns={"value": pr["label"]}).round(3))
-            st.download_button("Download study (CSV)",
-                               pr["df"].to_csv(index=False).encode("utf-8"),
-                               "parametric_study.csv", "text/csv")
-            st.caption("Uses the Fast search. Re-run after changing the model.")
+            show_plot(fig_section(prepare(entry["M"]), res, True, False,
+                                  dark=True, title=False, height=h),
+                      key=f"g2d_{wid}")
+        return
+    if view == "3D View":
+        st.info("Press **Run Analysis** to see the 3D view.")
+        return
+    show_plot(fig_preview(P, dark=True, height=h), key=f"gpre_{wid}")
 
-    # ---------------------------------------------------------- map tab
-    with tabs[3]:
-        st.write("Search a place or type coordinates in the sidebar (any "
-                 "location on Earth works), then save the analysis against it. "
-                 "Tip: long-press a spot in Google Maps to read its "
-                 "latitude and longitude.")
-        if st.button("Save this site"):
+
+def page_model(wid, p, ws_kind):
+    S = st.session_state
+    entry, stale = get_entry(wid, p)
+    left, right = st.columns([2.15, 1], gap="medium")
+
+    with left:
+        h1, h2 = st.columns([3.2, 1.4])
+        with h1:
+            st.markdown(card_title(
+                "📝", f"Worksheet {wid} – {ws_kind}",
+                "Enter your slope geometry and soil parameters below."),
+                unsafe_allow_html=True)
+        with h2:
+            st.selectbox("Load an example", list(PRESETS.keys()), index=None,
+                         placeholder="Load an example…", key="ex_pick",
+                         on_change=load_example, label_visibility="collapsed")
+
+        with box(border=True):
+            st.markdown('<div class="sl-green">🧊&nbsp; Model Parameters</div>',
+                        unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                field("num", "Slope Height (H), m", wid, "H",
+                      min_value=0.0, max_value=100.0, step=0.5)
+                field("num", "Slope Angle (β), °", wid, "beta",
+                      min_value=0.0, max_value=89.0, step=1.0)
+                field("num", "Cohesion (c'), kPa", wid, "L1_c",
+                      min_value=0.0, max_value=500.0, step=1.0)
+            with c2:
+                field("num", "Friction Angle (φ'), °", wid, "L1_phi",
+                      min_value=0.0, max_value=50.0, step=1.0)
+                field("num", "Unit Weight (γ), kN/m³", wid, "L1_gam",
+                      min_value=0.0, max_value=26.0, step=0.5)
+                field("num", "Water Table Depth, m", wid, "wd",
+                      min_value=0.0, max_value=100.0, step=0.5,
+                      disabled=(p["wmode"] == "Custom line"),
+                      help="Depth below the crest. Leave 0 for no water table. "
+                           "More options are on the Water Table page.")
+            if int(p["nl"]) > 1:
+                st.caption(f"This model has {int(p['nl'])} soil layers. The "
+                           "values above are for layer 1; edit the others on the "
+                           "Soil Layers page.")
+
+        with box(border=True):
+            g1, g2 = st.columns([3, 2])
+            g1.markdown('<div class="sl-green">📈&nbsp; Slope Geometry</div>',
+                        unsafe_allow_html=True)
+            with g2:
+                with box("viewtoggle"):
+                    field("rad", "View", wid, "view",
+                          options=["2D View", "3D View"], horizontal=True,
+                          label_visibility="collapsed")
+            geometry_figure(wid, p, entry, stale)
+
+        with box("runbtn"):
+            st.button("▶  Run Analysis", type="primary", on_click=run_analysis,
+                      args=(wid,), key="btn_run")
+        flash()
+
+    with right:
+        results_panel(entry, stale)
+
+
+def page_geometry(wid, p):
+    entry, stale = get_entry(wid, p)
+    S = st.session_state
+    left, right = st.columns([1, 1.5], gap="medium")
+    with left:
+        with box(border=True):
+            st.markdown('<div class="sl-green">📐&nbsp; Model extents</div>',
+                        unsafe_allow_html=True)
+            field("num", "Model depth below toe (× H)", wid, "Dfac",
+                  min_value=0.5, max_value=6.0, step=0.5,
+                  help="How deep the slip surface is allowed to go.")
+            field("num", "3D block width (m)", wid, "width",
+                  min_value=2.0, max_value=200.0, step=1.0)
+        with box(border=True):
+            st.markdown('<div class="sl-green">📍&nbsp; Site location</div>',
+                        unsafe_allow_html=True)
+            field("txt", "Site name", wid, "site_name")
+            field("txt", "Search any place in the world", wid, "place_query",
+                  placeholder="e.g. Ho Technical University, Ghana")
+            st.button("Find place", on_click=find_place, args=(wid,),
+                      key="btn_place")
+            if p.get("place_msg"):
+                st.caption(p["place_msg"])
+            l1, l2 = st.columns(2)
+            with l1:
+                field("num", "Latitude", wid, "lat", min_value=-90.0,
+                      max_value=90.0, step=0.0001, format="%.5f")
+            with l2:
+                field("num", "Longitude", wid, "lon", min_value=-180.0,
+                      max_value=180.0, step=0.0001, format="%.5f")
+    with right:
+        with box(border=True):
+            st.markdown('<div class="sl-green">🗺️&nbsp; Sites map</div>',
+                        unsafe_allow_html=True)
+            sites_map(wid, p, entry, stale)
+        if validate(p) is None:
+            with box(border=True):
+                st.markdown('<div class="sl-green">⛰️&nbsp; Section</div>',
+                            unsafe_allow_html=True)
+                show_plot(fig_preview(prepare(model_from_params(p)), dark=True,
+                                      height=300), key="geo_prev")
+
+
+def sites_map(wid, p, entry, stale):
+    S = st.session_state
+    F = np.nan
+    label = "Current (unsaved)"
+    if entry is not None:
+        res = entry["res"]
+        F = res["fos_bishop"] if res["method"] == "Bishop" else res["fos_fellenius"]
+    b1, b2, b3 = st.columns(3)
+    if b1.button("Save this site", key="btn_save"):
+        if entry is None or not np.isfinite(F):
+            st.warning("Run the analysis first, then save the site.")
+        else:
             S["sites"].append(dict(
-                Site=S["site_name"], Lat=float(S["lat"]), Lon=float(S["lon"]),
-                H=float(S["H"]), Angle=float(S["beta"]),
-                Layers=int(S["nlayers"]), Water=bool(S["water_on"]),
-                Method=S["method"], FoS=round(float(F), 3), Status=label))
-            st.success(f"Saved {S['site_name']}.")
-        if st.button("Load sample sites from around the world"):
-            if not S.get("_sample_loaded"):
-                S["sites"].extend(sample_sites_df().to_dict("records"))
-                S["_sample_loaded"] = True
-            st.info("Sample sites loaded. Their safety factors are demo "
-                    "values, not real analyses.")
-        up = st.file_uploader("Optional: load a sites CSV you saved earlier",
-                              type="csv")
-        if up is not None and not S.get("_loaded_" + up.name):
-            try:
-                extra = pd.read_csv(up)
-                need = {"Site", "Lat", "Lon", "FoS", "Status"}
-                if need.issubset(extra.columns):
-                    S["sites"].extend(extra.to_dict("records"))
-                    S["_loaded_" + up.name] = True
-                    st.success(f"Loaded {len(extra)} site(s).")
-                else:
-                    st.error("CSV needs the columns: " + ", ".join(sorted(need)))
-            except Exception as e:  # noqa: BLE001
-                st.error(f"Could not read the file: {e}")
+                Site=p["site_name"], Lat=float(p["lat"]), Lon=float(p["lon"]),
+                H=float(p["H"]), Angle=float(p["beta"]), Layers=int(p["nl"]),
+                Water=bool(entry["M"]["water_on"]),
+                Method=entry["res"]["method"], FoS=round(float(F), 3),
+                Status=status3(F)[0]))
+            st.success(f"Saved {p['site_name']}.")
+    if b2.button("Load sample sites", key="btn_sample"):
+        if not S.get("_sample_loaded"):
+            S["sites"].extend(sample_sites_df().to_dict("records"))
+            S["_sample_loaded"] = True
+        st.info("Sample sites loaded (demo values, not real analyses).")
+    if b3.button("Clear saved sites", key="btn_clear"):
+        S["sites"] = []
+        S["_sample_loaded"] = False
 
-        saved = pd.DataFrame(S["sites"]) if S["sites"] else pd.DataFrame(
-            columns=["Site", "Lat", "Lon", "FoS", "Status"])
-        current = pd.DataFrame([dict(
-            Site=f"{S['site_name']} (current)", Lat=float(S["lat"]),
-            Lon=float(S["lon"]), FoS=float(F), Status="Current (unsaved)")])
-        both = pd.concat([saved[["Site", "Lat", "Lon", "FoS", "Status"]],
-                          current], ignore_index=True)
+    up = st.file_uploader("Optional: load a sites CSV saved earlier", type="csv")
+    if up is not None and not S.get("_loaded_" + up.name):
         try:
-            show_plot(fig_sites_map(both), key="figsites")
-        except Exception:  # noqa: BLE001
-            st.map(both.rename(columns={"Lat": "latitude", "Lon": "longitude"}))
-        if len(saved):
-            show_df(saved)
-            st.download_button("Download sites (CSV)",
-                               saved.to_csv(index=False).encode("utf-8"),
-                               "slope_sites.csv", "text/csv")
-            if st.button("Clear saved sites"):
-                S["sites"] = []
-                st.rerun()
-        st.caption("Saved sites last for this browser session. Download the "
-                   "CSV to keep them, and upload it later to restore them.")
+            extra = pd.read_csv(up)
+            need = {"Site", "Lat", "Lon", "FoS", "Status"}
+            if need.issubset(extra.columns):
+                S["sites"].extend(extra.to_dict("records"))
+                S["_loaded_" + up.name] = True
+                st.success(f"Loaded {len(extra)} site(s).")
+            else:
+                st.error("CSV needs the columns: " + ", ".join(sorted(need)))
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Could not read the file: {e}")
 
-    # ---------------------------------------------------------- about tab
-    with tabs[4]:
+    cols = ["Site", "Lat", "Lon", "FoS", "Status"]
+    saved = (pd.DataFrame(S["sites"]) if S["sites"]
+             else pd.DataFrame(columns=cols))
+    current = pd.DataFrame([dict(
+        Site=f"{p['site_name']} (current)", Lat=float(p["lat"]),
+        Lon=float(p["lon"]), FoS=float(F) if np.isfinite(F) else 0.0,
+        Status=label)])
+    both = pd.concat([saved[cols], current], ignore_index=True)
+    try:
+        show_plot(fig_sites_map(both, dark=True), key="figsites")
+    except Exception:  # noqa: BLE001
+        st.map(both.rename(columns={"Lat": "latitude", "Lon": "longitude"}))
+    if len(saved):
+        show_df(saved)
+        st.download_button("Download sites (CSV)",
+                           saved.to_csv(index=False).encode("utf-8"),
+                           "slope_sites.csv", "text/csv")
+    st.caption("Any latitude and longitude on Earth works. Saved sites last "
+               "for this browser session; download the CSV to keep them.")
+
+
+def page_layers(wid, p):
+    nl = int(p["nl"])
+    left, right = st.columns([1.6, 1], gap="medium")
+    with left:
+        with box(border=True):
+            st.markdown('<div class="sl-green">🧱&nbsp; Soil layers</div>',
+                        unsafe_allow_html=True)
+            field("sel", "Number of layers", wid, "nl", options=[1, 2, 3, 4])
+            st.caption("Layers are horizontal, counted from the crest level "
+                       "downward. The last layer continues to the model base.")
+        nl = int(p["nl"])
+        for i in range(1, nl + 1):
+            with box(border=True):
+                swatch = LAYER_COLORS[(i - 1) % len(LAYER_COLORS)]
+                st.markdown(f'<div class="sl-title"><span style="color:{swatch}">'
+                            f'■</span>&nbsp; Layer {i}</div>', unsafe_allow_html=True)
+                if i < nl:
+                    field("num", "Thickness (m)", wid, f"L{i}_t",
+                          min_value=0.1, max_value=100.0, step=0.5)
+                else:
+                    st.caption("Extends down to the model base")
+                a, b = st.columns(2)
+                with a:
+                    field("num", "Unit weight (kN/m³)", wid, f"L{i}_gam",
+                          min_value=0.0, max_value=26.0, step=0.5)
+                    field("num", "Cohesion c' (kPa)", wid, f"L{i}_c",
+                          min_value=0.0, max_value=500.0, step=1.0)
+                with b:
+                    field("num", "Saturated weight (kN/m³)", wid, f"L{i}_gsat",
+                          min_value=0.0, max_value=26.0, step=0.5,
+                          help="Used below the water table. If lower than the "
+                               "unit weight, the unit weight is used.")
+                    field("num", "Friction angle φ' (°)", wid, f"L{i}_phi",
+                          min_value=0.0, max_value=50.0, step=1.0)
+    with right:
+        if validate(p) is None:
+            show_plot(fig_preview(prepare(model_from_params(p)), dark=True,
+                                  height=420), key="lay_prev")
+        else:
+            st.markdown('<div class="sl-empty">Complete the model parameters to '
+                        'preview the layers.</div>', unsafe_allow_html=True)
+
+
+def page_water(wid, p):
+    left, right = st.columns([1, 1.4], gap="medium")
+    with left:
+        with box(border=True):
+            st.markdown('<div class="sl-green">💧&nbsp; Water table</div>',
+                        unsafe_allow_html=True)
+            field("rad", "Definition", wid, "wmode",
+                  options=["Depth below crest", "Custom line"])
+            if p["wmode"] == "Depth below crest":
+                field("num", "Water table depth below crest (m)", wid, "wd",
+                      min_value=0.0, max_value=100.0, step=0.5,
+                      help="0 means no water table.")
+                st.caption("A horizontal water level. 0 = no water table.")
+            else:
+                w1, w2 = st.columns(2)
+                with w1:
+                    field("num", "Level at toe (m)", wid, "hwt",
+                          min_value=-50.0, max_value=100.0, step=0.5)
+                with w2:
+                    field("num", "Level at crest (m)", wid, "hwc",
+                          min_value=-50.0, max_value=100.0, step=0.5)
+                st.caption("Levels are measured up from the toe. The line is "
+                           "straight between the toe and the crest.")
+            st.caption("Pore pressure below the water line is taken as hydrostatic "
+                       "(conservative). Set saturated unit weights on the Soil "
+                       "Layers page.")
+    with right:
+        if validate(p) is None:
+            show_plot(fig_preview(prepare(model_from_params(p)), dark=True,
+                                  height=420), key="wat_prev")
+        else:
+            st.markdown('<div class="sl-empty">Complete the model parameters to '
+                        'preview the water table.</div>', unsafe_allow_html=True)
+
+
+def page_analysis(wid, p):
+    S = st.session_state
+    entry, stale = get_entry(wid, p)
+    if entry is None:
+        st.info("No analysis for this worksheet yet. Press the button to run it.")
+        with box("runbtn"):
+            st.button("▶  Run Analysis", type="primary", on_click=run_analysis,
+                      args=(wid,), key="btn_run2")
+        flash()
+        return
+    P = prepare(entry["M"])
+    res = entry["res"]
+    left, right = st.columns([2.15, 1], gap="medium")
+    with left:
+        if stale:
+            st.warning("Inputs changed since this analysis. Press Run Analysis "
+                       "on the Model page to update.")
+        t1, t2, t3, t4, t5 = st.tabs(["2D section", "Safety-factor map",
+                                      "3D view", "Results table",
+                                      "Parametric study"])
+        with t1:
+            o1, o2 = st.columns(2)
+            sl = o1.checkbox("Show slices", value=True, key="an_sl")
+            tr = o2.checkbox("Show other trial circles", value=True, key="an_tr")
+            show_plot(fig_section(P, res, sl, tr, dark=True, title=True),
+                      key="an_2d")
+        with t2:
+            show_plot(fig_centres(P, res, dark=True), key="an_map")
+        with t3:
+            show_plot(fig_3d(P, res, float(p["width"]), dark=True), key="an_3d")
+            st.caption("A 3D visualisation of the 2D (plane-strain) analysis "
+                       "extruded across the block width, not a full 3D analysis.")
+        with t4:
+            tbl = results_table(P, res)
+            show_df(tbl)
+            st.download_button("Download results (CSV)",
+                               tbl.to_csv(index=False).encode("utf-8"),
+                               "slope_results.csv", "text/csv")
+        with t5:
+            parametric_tab(entry["M"])
+    with right:
+        results_panel(entry, stale)
+
+
+def parametric_tab(M):
+    S = st.session_state
+    label_p = st.selectbox("Parameter to vary", list(PARAMS.keys()),
+                           key="pp_param")
+    key_p, lim_lo, lim_hi = PARAMS[label_p]
+    cur = current_value(M, key_p)
+    if key_p in ("hw_crest", "hw_toe"):
+        d_lo, d_hi = 0.0, float(M["H"])
+    else:
+        d_lo = max(lim_lo, round(cur * 0.5, 1))
+        d_hi = min(lim_hi, round(cur * 1.6, 1) if cur > 0 else lim_lo + 30.0)
+        if d_hi <= d_lo:
+            d_lo, d_hi = lim_lo, min(lim_hi, lim_lo + 30.0)
+    p1, p2, p3 = st.columns(3)
+    v_lo = p1.number_input("From", value=float(d_lo), key=f"pmin_{key_p}")
+    v_hi = p2.number_input("To", value=float(d_hi), key=f"pmax_{key_p}")
+    n_pts = p3.slider("Points", 5, 20, 10, key=f"pn_{key_p}")
+    if st.button("Run parametric study", key="btn_param"):
+        if v_hi <= v_lo:
+            st.error("'To' must be larger than 'From'.")
+        else:
+            with st.spinner("Running analyses..."):
+                vals = np.linspace(v_lo, v_hi, int(n_pts))
+                df = run_parametric(M, key_p, vals)
+            S["param_result"] = dict(label=label_p, key=key_p, df=df, cur=cur)
+    pr = S.get("param_result")
+    if pr is not None:
+        show_plot(fig_parametric(pr["df"], pr["label"], pr["cur"], dark=True),
+                  key="figpar")
+        show_df(pr["df"].rename(columns={"value": pr["label"]}).round(3))
+        st.download_button("Download study (CSV)",
+                           pr["df"].to_csv(index=False).encode("utf-8"),
+                           "parametric_study.csv", "text/csv")
+        st.caption("Uses the Fast search. Re-run after changing the model.")
+
+
+def page_settings():
+    S = st.session_state
+    with box(border=True):
+        st.markdown('<div class="sl-green">⚙️&nbsp; Analysis settings</div>',
+                    unsafe_allow_html=True)
+        field("rad", "Method", "settings", "method",
+              options=["Bishop", "Fellenius"], horizontal=True)
+        field("ssl", "Search density", "settings", "density",
+              options=["Fast", "Standard", "Fine"])
+        field("sld", "Number of slices", "settings", "nsl",
+              min_value=15, max_value=60)
+        st.caption("Press Run Analysis again after changing these settings.")
+    with box(border=True):
+        st.markdown('<div class="sl-green">🧹&nbsp; Reset</div>',
+                    unsafe_allow_html=True)
+        st.button("Reset the whole application", on_click=reset_app,
+                  key="btn_reset")
+
+
+def page_help():
+    with box(border=True):
         st.markdown(
             """
-**Method.** Limit-equilibrium method of slices on circular slip surfaces.
-The critical circle is found by a grid search over exit point, entry point and
-radius, followed by local refinement.
+### How to use SlopeLab
+1. Pick a worksheet tab (use **New Worksheet** for another slope).
+2. On **Model**, enter the height, angle and soil strength, or load an example.
+3. Optional: add layers (**Soil Layers**), a water table (**Water Table**),
+   the site location and sites map (**Geometry**).
+4. Press **Run Analysis**. Results appear on the right; **Analysis** has the
+   safety-factor map, 3D view, results table and parametric study.
+
+### Method
+Limit-equilibrium method of slices on circular slip surfaces. The critical
+circle is found by a grid search over exit point, entry point and radius,
+followed by local refinement.
             """)
         st.latex(r"F_{Bishop}=\frac{\sum\frac{c'b+(W-ub)\tan\phi'}{m_\alpha}}"
                  r"{\sum W\sin\alpha},\quad "
@@ -1017,20 +1652,101 @@ radius, followed by local refinement.
                  r"\tan\phi'\right]}{\sum W\sin\alpha}")
         st.markdown(
             """
-**Assumptions and limits**
-- Homogeneous horizontal layers; 2D plane strain; circular failure only.
-- Water table is a straight line; pore pressure at each slice base is
-  hydrostatic from that line (conservative compared with a seepage analysis).
-- Use effective-stress parameters (c', phi') when a water table is present. For
-  a quick undrained check use phi = 0 with the water table off.
+### Limits
+- Horizontal layers, 2D plane strain, circular failure only.
+- Water table is a straight line; pore pressure is hydrostatic below it
+  (conservative compared with a seepage analysis).
+- Use effective-stress values (c', φ') when a water table is present.
 - No earthquake, surcharge or reinforcement loads yet.
-- Always verify against hand calculations or commercial software (for example
-  GEO5, Slide, GeoStudio) before using results for design.
+- Verify results with hand calculations or design software (GEO5, Slide,
+  GeoStudio) before using them for design.
 
-**Validation example.** Choose "Check: Taylor chart" in the sidebar. Taylor's
-chart for phi = 0 and a 45 degree slope gives FoS = c / (0.181 x gamma x H)
-= 0.77.
+### Quick check
+Load **Check: Taylor chart (phi = 0, 45 deg)**. Taylor's chart gives
+FoS = c' / (0.181 × γ × H) = 0.77.
             """)
+
+
+# -------------------------------------------------------------------- main
+def sidebar():
+    with st.sidebar:
+        st.markdown(
+            '<div style="text-align:center;padding:10px 0 6px 0">'
+            '<svg width="92" height="54" viewBox="0 0 92 54"><path d="M2 52 L30 12 '
+            'L44 30 L56 16 L90 52 Z" fill="none" stroke="#3b82f6" stroke-width="4" '
+            'stroke-linejoin="round"/><path d="M30 12 L36 22 L28 20 Z" fill="#60a5fa"/>'
+            '<path d="M56 16 L66 30 L50 28 Z" fill="#22c55e"/></svg>'
+            '<div style="font-size:2rem;font-weight:800;letter-spacing:.5px">'
+            'Slope<span style="color:#22c55e">Lab</span></div>'
+            '<div class="sl-sub">Slope Stability Analysis Tool</div></div>',
+            unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        field("rad", "Navigation", "ui", "page", options=PAGES,
+              format_func=lambda x: f"{PAGE_ICONS[x]}  {x}",
+              label_visibility="collapsed")
+        st.markdown(
+            '<div class="sl-card" style="margin-top:22px;border-color:#1f3a63">'
+            '<div class="sl-title" style="color:#60a5fa">About SlopeLab</div>'
+            '<div class="sl-sub" style="margin-top:4px">Professional tool for slope '
+            'stability analysis using Bishop and Fellenius methods.</div></div>'
+            '<div style="display:flex;justify-content:space-between;align-items:center;'
+            'padding:6px 4px"><span class="sl-sub">Version 1.0.0</span>'
+            '<span><span class="sl-dot" style="background:#22c55e"></span>&nbsp;'
+            '<b>Ready</b></span></div>', unsafe_allow_html=True)
+
+
+def main():
+    st.set_page_config(page_title="SlopeLab - Slope Stability Analysis Tool",
+                       page_icon="⛰️", layout="wide",
+                       initial_sidebar_state="expanded")
+    init_state()
+    S = st.session_state
+    st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+    sidebar()
+
+    st.markdown('<div style="font-size:1.25rem;font-weight:700;margin-bottom:8px">'
+                'SlopeLab – Slope Stability Analysis Tool</div>',
+                unsafe_allow_html=True)
+
+    ids = [w["id"] for w in S["ws"]]
+    if S["store"]["ui"]["active"] not in ids:
+        S["store"]["ui"]["active"] = ids[0]
+
+    t_col, n_col, d_col = st.columns([6, 1.7, 1.7])
+    with t_col:
+        with box("wstabs"):
+            field("rad", "Worksheets", "ui", "active", options=ids,
+                  format_func=lambda i: f"📄  Worksheet {i}", horizontal=True,
+                  label_visibility="collapsed")
+    with n_col:
+        with box("newws"):
+            st.button("＋  New Worksheet", on_click=add_ws, key="btn_new")
+    with d_col:
+        with box("delws"):
+            st.button("🗑  Delete Worksheet", on_click=delete_ws, key="btn_del")
+
+    wid = S["store"]["ui"]["active"]
+    if wid not in S["store"]:  # a worksheet was just removed
+        wid = ids[0]
+    p = S["store"][wid]
+    ws_kind = next(w["kind"] for w in S["ws"] if w["id"] == wid)
+    page = S["store"]["ui"]["page"]
+
+    if page == "Model":
+        page_model(wid, p, ws_kind)
+    elif page == "Geometry":
+        page_geometry(wid, p)
+    elif page == "Soil Layers":
+        page_layers(wid, p)
+    elif page == "Water Table":
+        page_water(wid, p)
+    elif page == "Analysis":
+        page_analysis(wid, p)
+    elif page == "Settings":
+        page_settings()
+    else:
+        page_help()
 
 
 if __name__ == "__main__":
