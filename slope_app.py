@@ -17,6 +17,9 @@ Run locally:  streamlit run slope_app.py
 """
 
 import copy
+import json
+import urllib.parse
+import urllib.request
 
 import numpy as np
 import pandas as pd
@@ -532,16 +535,18 @@ def fig_parametric(df, label, current, ):
     return fig
 
 
-def fig_sites_map(df, zoom=11):
+def fig_sites_map(df):
     import plotly.express as px
 
     d = df.copy()
     d["size"] = 14
+    center, zoom = auto_view(d)
     kwargs = dict(lat="Lat", lon="Lon", color="Status",
                   color_discrete_map=STATUS_COLORS, hover_name="Site",
                   hover_data={"FoS": ":.2f", "Lat": ":.5f", "Lon": ":.5f",
                               "size": False, "Status": True},
-                  size="size", size_max=16, zoom=zoom, height=460)
+                  size="size", size_max=16, zoom=zoom, center=center,
+                  height=460)
     try:
         fig = px.scatter_map(d, map_style="open-street-map", **kwargs)
     except AttributeError:  # older plotly
@@ -598,6 +603,60 @@ def run_parametric(M, key, values, nsl=24):
     return pd.DataFrame(rows, columns=["value", "Bishop", "Fellenius"])
 
 
+
+# =====================================================================
+# 6b. SITES: sample data, place search, map view
+# =====================================================================
+SAMPLE_SITES = [
+    # Demo values only (not real analyses): they show how the map works.
+    ("Ho, Ghana (sample)", 6.6101, 0.4703, 10.0, 30.0, 1, False, 1.53, "Stable"),
+    ("Accra, Ghana (sample)", 5.6037, -0.1870, 6.0, 35.0, 2, True, 1.12, "Marginal"),
+    ("Kumasi, Ghana (sample)", 6.6885, -1.6244, 8.0, 40.0, 2, True, 0.94, "Unstable"),
+    ("Hong Kong (sample)", 22.3193, 114.1694, 15.0, 45.0, 2, True, 1.38, "Acceptable"),
+    ("Rio de Janeiro, Brazil (sample)", -22.9068, -43.1729, 12.0, 40.0, 2, True, 1.05, "Marginal"),
+    ("Kathmandu, Nepal (sample)", 27.7172, 85.3240, 20.0, 38.0, 3, True, 0.89, "Unstable"),
+    ("Seattle, USA (sample)", 47.6062, -122.3321, 9.0, 30.0, 2, True, 1.64, "Stable"),
+    ("Oslo, Norway (sample)", 59.9139, 10.7522, 7.0, 25.0, 2, False, 1.71, "Stable"),
+    ("Sydney, Australia (sample)", -33.8688, 151.2093, 11.0, 35.0, 1, False, 1.42, "Acceptable"),
+]
+
+
+def sample_sites_df():
+    return pd.DataFrame([
+        dict(Site=n, Lat=la, Lon=lo, H=h, Angle=a, Layers=nl, Water=w,
+             Method="Bishop", FoS=f, Status=st_)
+        for (n, la, lo, h, a, nl, w, f, st_) in SAMPLE_SITES])
+
+
+def parse_geocode(data):
+    """First hit of a Nominatim JSON answer -> (lat, lon, name) or None."""
+    if not data:
+        return None
+    d = data[0]
+    return float(d["lat"]), float(d["lon"]), d.get("display_name", "")
+
+
+def geocode(query, timeout=8):
+    """Look up any place name in the world with OpenStreetMap Nominatim."""
+    url = ("https://nominatim.openstreetmap.org/search?format=json&limit=1&q="
+           + urllib.parse.quote(query))
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "SlopeLab-student-project/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return parse_geocode(json.loads(r.read().decode("utf-8")))
+
+
+def auto_view(df):
+    """Map centre and zoom that fit all points (works anywhere on Earth)."""
+    lat0, lon0 = float(df["Lat"].mean()), float(df["Lon"].mean())
+    span = max(float(df["Lat"].max() - df["Lat"].min()),
+               float(df["Lon"].max() - df["Lon"].min()))
+    if span < 1e-4:
+        zoom = 12.0
+    else:
+        zoom = float(np.clip(np.log2(360.0 / (span * 1.6)), 1.0, 12.0))
+    return dict(lat=lat0, lon=lon0), zoom
+
 # =====================================================================
 # 6. PRESETS / DEFAULTS
 # =====================================================================
@@ -615,6 +674,7 @@ DEFAULTS = dict(
     H=10.0, beta=30.0, Dfac=2.0, nlayers=1, water_on=False,
     hw_toe=0.0, hw_crest=6.0, method="Bishop", nsl=30, density="Standard",
     width=20.0, site_name="Site 1", lat=6.6101, lon=0.4703, preset="-",
+    place_query="", place_msg="",
     **_layer_defaults())
 
 PRESETS = {
@@ -706,6 +766,23 @@ def main():
             for k, v in PRESETS[name].items():
                 S[k] = v
 
+    def find_place():
+        q = str(S.get("place_query", "")).strip()
+        if not q:
+            S["place_msg"] = "Type a place name first."
+            return
+        try:
+            hit = geocode(q)
+        except Exception:  # noqa: BLE001
+            S["place_msg"] = ("Could not reach the place-search service. "
+                              "Type the coordinates instead.")
+            return
+        if hit is None:
+            S["place_msg"] = f"No place found for '{q}'. Try a fuller name."
+            return
+        S["lat"], S["lon"] = round(hit[0], 5), round(hit[1], 5)
+        S["place_msg"] = "Found: " + hit[2]
+
     st.markdown(
         """
         <div style="padding:14px 18px;border-radius:12px;
@@ -770,6 +847,11 @@ def main():
 
         st.subheader("Site")
         st.text_input("Site name", key="site_name")
+        st.text_input("Search any place in the world", key="place_query",
+                      placeholder="e.g. Ho Technical University, Ghana")
+        st.button("Find place", on_click=find_place)
+        if S.get("place_msg"):
+            st.caption(S["place_msg"])
         l1, l2 = st.columns(2)
         l1.number_input("Latitude", min_value=-90.0, max_value=90.0,
                         step=0.0001, format="%.5f", key="lat")
@@ -866,8 +948,9 @@ def main():
 
     # ---------------------------------------------------------- map tab
     with tabs[3]:
-        st.write("Save this analysis against the site coordinates in the "
-                 "sidebar. Tip: long-press a spot in Google Maps to read its "
+        st.write("Search a place or type coordinates in the sidebar (any "
+                 "location on Earth works), then save the analysis against it. "
+                 "Tip: long-press a spot in Google Maps to read its "
                  "latitude and longitude.")
         if st.button("Save this site"):
             S["sites"].append(dict(
@@ -876,7 +959,14 @@ def main():
                 Layers=int(S["nlayers"]), Water=bool(S["water_on"]),
                 Method=S["method"], FoS=round(float(F), 3), Status=label))
             st.success(f"Saved {S['site_name']}.")
-        up = st.file_uploader("Load sites from a CSV file", type="csv")
+        if st.button("Load sample sites from around the world"):
+            if not S.get("_sample_loaded"):
+                S["sites"].extend(sample_sites_df().to_dict("records"))
+                S["_sample_loaded"] = True
+            st.info("Sample sites loaded. Their safety factors are demo "
+                    "values, not real analyses.")
+        up = st.file_uploader("Optional: load a sites CSV you saved earlier",
+                              type="csv")
         if up is not None and not S.get("_loaded_" + up.name):
             try:
                 extra = pd.read_csv(up)
